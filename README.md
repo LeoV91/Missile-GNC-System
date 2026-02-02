@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project presents the modeling, control, and state estimation of a missile **longitudinal dynamics** using modern control techniques implemented in **MATLAB** and **Simulink**.
+This project presents the modeling, control, and state estimation of a missile **longitudinal dynamics** using modern control techniques implemented in **MATLAB R2025a** and **Simulink**.
 
 The work combines:
 - State-space modeling of missile dynamics
@@ -232,7 +232,7 @@ These equations are implemented in Simulink to reconstruct the missile trajector
 
 
 
-## 6. Guidance Law (Outer loop)
+## 6. Guidance Law 
 
 ### 6.1 Line-of-Sight Geometry
 
@@ -247,11 +247,58 @@ This really simple atan-based guidance law ensures:
 
 ### 6.2 No-Fly Zone (NFZ) Constraint
 
+An obstacle or restricted area is defined by a forbidden region:
+
+$\mathcal{Z}_{NFZ} = \{ (x,y) \mid \| (x,y) - (x_{obs},y_{obs}) \| < R_{NFZ} \} $
+
+When the predicted missile trajectory intersects the NFZ:
+- The commanded angle becomes $\gamma_{cmd} = 0 $
+
+The physical understanding of this simple command is that it avoids the obstacle by hovering it. The hypothesis behind this choice is that the missile has enough height to hover the obstacle.
 
 
 
+## 7. Outer-Loop Control
 
-## 7. Implementation
+### 7.1 Command saturation
+
+In practice, the missile cannot instantaneously change its attitude by a too large value. This dynamic is modelised by using a saturation block. 
+Therefore, the guidance command is constrained by a hard saturation:
+
+$$
+\theta_{cmd} = \text{sat}_{[-0.5,\;0.5]}(\theta_{cmd}) 
+$$
+
+where $\pm 0.5\ \text{rad}$ represents the maximum allowable pitch angle.
+
+### 7.2 PID Controller in the Outer Loop (Guidance Command Conditioning)
+
+Between the raw guidance law and the saturation block, a PID controller is implemented in the outer loop to condition the guidance command before it is applied to the inner-loop autopilot:
+
+$$
+\theta_{cmd}^{PID}(t) =
+P\ e(t) + I \int e(t)\ dt + D \frac{de(t)}{dt}
+$$
+
+with the tracking error defined as:
+
+$$
+e(t) = \theta_{cmd}(t) - \theta(t)
+$$
+
+Although the inner loop (LQG autopilot) already provides fast and robust stabilization of the missile attitude, the outer-loop PID plays a complementary role. It acts as an interface between guidance and control by smoothing abrupt variations of the raw $\arctan(\cdot) $ -based guidance command before they reach the autopilot. In addition, it enforces a clear separation of time scales, with slow guidance dynamics and fast inner-loop attitude dynamics. The PID also improves robustness with respect to modeling simplifications, kinematic approximations, and coupling effects not captured in the linear autopilot model. Note that it is not really effective in our study since the model of the GNC loop and the simulator are the same.
+
+The gains used in the simulation are:
+
+$$
+P = -1, \quad I = 0, \quad D = 0
+$$
+
+This configuration corresponds to a pure proportional controller with negative feedback. The negative gain ensures the correct feedback direction between the pitch error and the commanded pitch angle. The absence of integral action prevents windup issues induced by the downstream saturation, while the absence of derivative action limits noise amplification and is justified by the already fast dynamics of the inner loop.
+
+In this architecture, the PID does not replace the autopilot. Instead, it scales and regulates the guidance command, ensures compatibility with attitude and actuator limits when combined with saturation, and contributes to an improved overall closed-loop behavior of the integrated guidance and control system.
+
+## 8. Implementation
 
 The project is implemented using:
 - **MATLAB** for analytical design and verification
@@ -260,18 +307,17 @@ The project is implemented using:
 The modular structure enables future extensions such as:
 - Nonlinear aerodynamic modeling
 - Actuator dynamics
-- 3-DOF missile models
+- 3-DOF or 6-DOF missile models
 
 
 
-## 8. Conclusion
+## 9. Conclusion
 
 This project demonstrates a complete **GNC-oriented control design workflow**, from modeling to LQG synthesis and environmental integration.
 
 Key outcomes include:
 - Successful stabilization of an unstable missile model using LQR
 - Robust state estimation via Kalman filtering
-- Clear separation between control and estimation
 - Realistic initialization using geodetic navigation principles
 
 The project forms a solid foundation for advanced missile guidance and control developments and is well-suited for inclusion in a professional GitHub portfolio.
@@ -280,4 +326,4 @@ The project forms a solid foundation for advanced missile guidance and control d
 
 ## Keywords
 
-`LQR` · `LQG` · `Kalman Filter` · `Missile Autopilot` · `State-Space Control` · `MATLAB` · `Simulink` · `GNC`
+`LQR`, `LQG`, `PID`, `Kalman Filter`, `Missile Autopilot`, `State-Space Control`, `MATLAB`, `Simulink`, `GNC`
