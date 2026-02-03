@@ -249,7 +249,10 @@ This really simple atan-based guidance law ensures:
 
 An obstacle or restricted area is defined by a forbidden region:
 
-$\mathcal{Z}_{NFZ} = \{ (x,y) \mid \| (x,y) - (x_{obs},y_{obs}) \| < R_{NFZ} \} $
+$$
+\mathcal{Z}_{NFZ} = \{ (x,y) \mid \| (x,y) - (x_{obs},y_{obs}) \| < R_{\text{NFZ}} \} 
+$$
+
 
 When the predicted missile trajectory intersects the NFZ:
 - The commanded angle becomes $\gamma_{cmd} = 0 $
@@ -276,7 +279,7 @@ where $\pm 0.5\ \text{rad}$ represents the maximum allowable pitch angle.
 Between the raw guidance law and the saturation block, a PID controller is implemented in the outer loop to condition the guidance command before it is applied to the inner-loop autopilot:
 
 $$
-\theta_{cmd}^{PID}(t) =
+\theta_{cmd}(t) =
 P\ e(t) + I \int e(t)\ dt + D \frac{de(t)}{dt}
 $$
 
