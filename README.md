@@ -1,332 +1,150 @@
-# LQG Missile Autopilot – Control & Navigation Project
+# Segway Control System — LQI Control Project
 
 ## Overview
 
-This project presents the modeling, control, and state estimation of a missile **longitudinal dynamics** using modern control techniques implemented in **MATLAB R2025a** and **Simulink**.
+Ce projet présente la modélisation et la synthèse d'une loi de commande classique pour un système de type **Segway** (pendule inversé sur roue motorisée), implémenté en **MATLAB R2025a** et **Simulink**.
 
-The work combines:
-- State-space modeling of missile dynamics
-- Linear Quadratic Regulator (LQR) synthesis
-- Linear Quadratic Gaussian (LQG) control via Kalman filtering
-- Closed-loop stability analysis
-- Kinematic propagation of missile position
-- A guidance law based on angular geometry (atan) and No-Fly Zone (NFZ) constraints
-- Integration within a simplified missile–environment scenario
+Ce projet combine :
+- La modélisation du Segway (réalisée dans [`Segway-Modeling-1.md`](Segway-Modeling-1.md))
+- La synthèse d'une loi de commande par retour d'état optimal **LQI** (LQR + action intégrale) assurant le suivi d'une consigne de position
+- L'analyse de stabilité, de performance et des limites physiques du système en boucle fermée
+- *(Piste future)* l'extension vers une architecture **LQG** avec observateur, et l'intégration dans un scénario de visualisation 3D
 
-The objective is to demonstrate a complete and coherent **control design workflow**, suitable for Guidance, Navigation, and Control (GNC) applications.
+L'objectif est de stabiliser un système intrinsèquement instable en boucle ouverte (pendule inversé) et de le faire suivre une consigne de position `x(t)`, tout en respectant les limites physiques de l'actionneur (couple moteur) et les contraintes structurelles du système.
 
+> **Statut du document** : les sections 1 à 2 et la synthèse LQI (section 3) reflètent le travail effectivement réalisé et validé (script MATLAB + Simulink). Les sections concernant l'extension LQG (observateur, bruit) et l'intégration 3D sont pour l'instant des pistes de travail futures, marquées comme telles ci-dessous — elles n'ont pas encore été implémentées.
 
+## Documentation
+- [Segway_Model](Segway-Modeling-1.md) — dérivation complète des équations du mouvement et linéarisation
 
 ## 1. System Modeling
 
+La modélisation du système jusqu'à l'obtention d'une représentation d'état a été réalisée dans la partie *Segway_Model*. Se référer à ce document pour le détail du cheminement (formalisme de Newton-Euler / Lagrange) et la détermination des équations. Cette section se contente d'un résumé, en vue de l'implémentation de la loi de commande LQ.
+
 ### 1.1 State-Space Representation
 
-The missile longitudinal dynamics are modeled in continuous-time state-space form:
+**États** : `X = [x, x_dot, theta, theta_dot]'`
+- `x` : position de la roue [m]
+- `theta` : angle d'inclinaison du châssis [rad]
 
+**Entrée** : `u = T`, le couple moteur appliqué à la roue [N.m]
 
-$\dot{x} = Ax + Bu $
+**Limitation de l'entrée** : en l'absence de fiche technique moteur définitive, une limite de couple de l'ordre de **3 N.m maximum** est retenue comme hypothèse de dimensionnement cohérente avec un système de cette taille (M = m = 0.3 kg) — typique d'un motoréducteur DC pour robot compact. *Cette valeur doit être confirmée/ajustée selon le moteur réellement sélectionné.*
 
-$\ y = Cx + Du $
+**Sortie régulée** : `y = x` (position de la roue)
 
-with the following definitions:
+**Modèle linéarisé** (autour du point d'équilibre instable `theta = 0`) :
 
-**States**
-- Angle of Attack \( $AoA$ )
-- Pitch rate \( $q$ )
+```
+A = [0        1        0                          0;
+     0        0        3*m*g/(4*M+m)               0;
+     0        0        0                          1;
+     0        0        6*g*(M+m)/(L*(4*M+m))       0]
 
-**Input**
-- Control surface deflection \( $\delta_c$ )
+B = [0; 4/(4*M+m); 0; 6/(L*(4*M+m))]
 
-**Outputs**
-- Normal acceleration ( $A_z$ )
-- Pitch rate \( $q$ )
+C = [1 0 0 0]
+D = [0]
+```
 
-The system matrices are:
-
-$$
-A =
-\begin{bmatrix}
--1.064 & 1 \\
-290.26 & 0
-\end{bmatrix},
-\quad
-B =
-\begin{bmatrix}
--0.25 \\
--331.40
-\end{bmatrix}
-$$
-
-$$
-C =
-\begin{bmatrix}
--123.34 & 0 \\
-0 & 1
-\end{bmatrix},
-\quad
-D =
-\begin{bmatrix}
--13.51 \\
-0
-\end{bmatrix}
-$$
-
-This reduced-order model focuses on the **short-period longitudinal dynamics**, which dominate the pitch stability and control behavior of the missile and therefore represent the primary target of the autopilot design.
-
-
+avec `M = m = 0.3 kg`, `L = 0.67 m`, `g = 9.81 m/s²`.
 
 ### 1.2 Open-Loop Analysis
 
-The transfer function from the control input \( $\delta_c $) to the pitch rate \( $q$ ) is extracted from the state-space model.
+Les pôles en boucle ouverte (valeurs propres de `A`) sont :
 
-Pole analysis reveals an **open-loop unstable behavior**, motivating the use of active feedback control.
+| Pôle | Interprétation |
+|---|---|
+| `0` (double) | intégration pure (position ← vitesse) |
+| `+5.928 rad/s` | **mode instable** — divergence exponentielle de l'inclinaison |
+| `-5.928 rad/s` | mode stable symétrique |
 
-
+La présence d'un pôle à partie réelle strictement positive confirme que **le système est instable en boucle ouverte** — attendu pour un pendule inversé. La fonction de transfert `u → x` présente en outre un **zéro de transmission à phase non minimale** en `s = +4.686 rad/s` (voir §3.4) : physiquement, accélérer la roue vers l'avant nécessite d'abord une inclinaison du châssis vers l'arrière. Cette propriété structurelle, invariante par retour d'état, borne les performances atteignables en boucle fermée quelle que soit l'agressivité des gains (cf. §3.4).
 
 ## 2. LQR Control Design
 
 ### 2.1 Control Objective
 
-The LQR controller is designed to:
-- Stabilize the missile longitudinal dynamics
-- Penalize excessive angle of attack and pitch rate
-- Limit control effort
-
-The quadratic cost function minimized in infinite time is:
-
-$$
-J = \int_{0}^{\infty} \left( x^T Q x + u^T R u \right) \ dt
-$$
-
-with weighting matrices:
-
-$$
-Q =
-\begin{bmatrix}
-1 & 0 \\
-0 & 1
-\end{bmatrix},
-\quad
-R = 1.4
-$$
-
-
+Stabiliser le système autour de `theta = 0` tout en asservissant la position `x` à une consigne `r(t)` variable dans le temps (échelon, puis retour à zéro, puis segment sinusoïdal — voir profil `Rcmd` généré dans le script). Un simple retour d'état LQR régule le système vers l'origine mais ne garantit pas d'erreur statique nulle pour une consigne non nulle ; une action intégrale est donc nécessaire (§3).
 
 ### 2.2 LQR Gain and Stability
 
-The optimal state feedback control law is:
+Détermination du gain `K` par résolution de l'équation de Riccati (`lqr(A,B,Q,R)`), avec vérification préalable de la commandabilité et de l'observabilité du système (`rank(ctrb(A,B))`, `rank(obsv(A,C))`) — condition nécessaire à l'existence d'une solution stabilisante.
 
-$$
-u = -Kx
-$$
-
-The gain matrix \( $K$ ) is obtained by solving the Algebraic Riccati Equation :
-
-$$
-A^T S + S A - S B R^{-1} B^T S + Q = 0
-$$
-
-The closed-loop system matrix:
-
-$$
-A_{cl} = A - BK
-$$
-
-has eigenvalues strictly located in the left-half complex plane, confirming **closed-loop asymptotic stability**.
-
-
+Une précompensation statique `N = -1/(C*((A-B*K)\B))` a été envisagée pour annuler l'erreur statique, mais s'avère **inadaptée** dès que la sortie régulée change (par ex. `y = x_dot`) ou en présence de perturbations — d'où le choix d'une architecture LQI (§3).
 
 ### 2.3 Closed-Loop Dynamics
 
-The closed-loop transfer function from \( $\delta_c $) to \( $q$ ) is analyzed.
+Voir les résultats détaillés en §3 (le retour d'état LQR seul, sans action intégrale, n'a été utilisé que comme étape intermédiaire de vérification ; l'architecture retenue pour la commande finale est LQI).
 
-Compared to the open-loop system, the closed-loop response exhibits:
-- Improved damping
-- Faster settling time
-- Robust stabilization of pitch dynamics
+## 3. LQI Control Architecture
 
+Le suivi de consigne est assuré par une action intégrale sur l'erreur de position, augmentant l'état du système :
 
+```
+Az = [A,  0;
+     -C,  0]     (5x5)
+Bz = [B; D]        (5x1)
 
-## 3. State Estimation – Kalman Filter
+z_i_dot = r - C*x     (état intégral, erreur accumulée)
+K_lqi = lqr(Az, Bz, Q, R) = [Kx, Ki]
+u = -Kx*x - Ki*z_i
+```
 
-### 3.1 Motivation
+Le gain complet est ensuite scindé en `Kx` (retour d'état, 1×4) et `Ki` (gain intégral, scalaire) pour reconstruire la boucle fermée avec la référence `r(t)` comme entrée externe :
 
-In practical applications, not all states are directly measurable and sensor measurements are corrupted by noise.  
-A **Kalman filter** is therefore designed to provide optimal state estimation.
-A Kalman filter is used to estimate :
+```
+A_cl = [A - B*Kx,   -B*Ki;
+        -C,          0]
+B_cl = [0; 0; 0; 0; 1]
+```
 
-$$
-\dot{\hat{x}} = 
-\begin{bmatrix}
-\hat{AoA} \\
-\hat{q}
-\end{bmatrix}
-$$
+### 3.1 Réglage des matrices de pondération Q et R
 
+Point de départ (règle de Bryson, `Q_ii = 1/x_i,max²`, `R = 1/u_max²`), puis ajustement itératif par balayage de `R` (à `Q` fixe) en observant :
+- les pôles dominants et leur amortissement (`damp(Sys_cl)`)
+- les performances temporelles (`stepinfo` : temps de montée, dépassement, temps d'établissement)
+- le couple maximal demandé (`max(abs(U_cmd))`), à comparer à la limite de 3 N.m
 
+| Jeu de gains | Poles dominants (ζ / ωn) | Rise time | Overshoot | Settling time | Couple max (step) |
+|---|---|---|---|---|---|
+| `Q = diag([1,5,50,5,500])`, `R = 1` (initial) | ζ=0.585, ωn=2.69 rad/s | 0.878 s | 5.29 % | 2.80 s | 1.27 N.m |
+| `Q = diag([1,5,50,5,500])`, `R = 0.05` (retenu) | ζ=0.599, ωn=2.83 rad/s | 0.844 s | 4.91 % | 2.65 s | 1.41 N.m |
 
-### 3.2 Noise Modeling
+Le second réglage améliore légèrement la rapidité et l'amortissement sans coût significatif en couple, et se situe déjà proche de la limite atteignable avec cette architecture (voir §3.4).
 
-The augmented system includes process and measurement noise with the following covariances:
+### 3.2 Noise Modeling *(non implémenté — piste future / LQG)*
 
-**- Process noise covariance**
+Le système actuel suppose l'état complet `[x, x_dot, theta, theta_dot]` directement mesurable, sans bruit de mesure ni perturbation modélisés. Pour une extension LQG, il faudra définir :
+- une matrice de covariance du bruit de process (incertitudes de modèle, perturbations)
+- une matrice de covariance du bruit de mesure (bruit capteur — IMU pour `theta`, encodeur pour `x`)
 
-$$
-W = 0.01 I
-$$
+*(À compléter selon les capteurs réellement instrumentés sur le prototype.)*
 
-**- Measurement noise covariance**
+### 3.3 Observer Dynamics *(non implémenté — piste future / LQG)*
 
-$$
-V = 0.5 I
-$$
+Aucun observateur (filtre de Kalman ou autre) n'a été implémenté à ce stade — la commande actuelle nécessite la mesure directe de tous les états, en particulier `theta` et `theta_dot`, ce qui suppose une IMU ou un capteur d'inclinaison sur le châssis. Si seul `x` (et éventuellement `x_dot`) est mesurable directement, un observateur (Kalman/Luenberger) devient nécessaire pour reconstruire `theta` et `theta_dot` avant de fermer la boucle LQI.
 
-This choice reflects moderate sensor noise and low model uncertainty.
+### 3.4 Limites structurelles du système
 
-
-
-### 3.3 Observer Dynamics
-
-The Kalman filter provides the observer gain \( $L$ ).  
-The observer dynamics are given by:
-
-$$
-\begin{aligned}
-\dot{\hat{x}} &= A\hat{x} + Bu + L(y - C\hat{x}) \\
-              &= (A - LC)\hat{x} + Bu + Ly
-\end{aligned}
-$$
-
-The eigenvalues of \( $A - LC$ ) lie in the left-half complex plane, ensuring **fast and stable state estimation**.
-
-
-
-## 4. LQG Control Architecture
-
-The LQG controller combines:
-- **LQR state feedback** for control
-- **Kalman filter** for state estimation
-
-Thanks to the separation principle, overall closed-loop stability is guaranteed as long as both the controller and the observer are individually stable.
-
-This architecture is well-suited for real-world missile autopilot implementations.
-
-
-
-## 5. Missile kinematics & Navigation model
-
-### 5.1 Translational motion
-
-The missile position is propagated in an Earth-fixed local frame:
-
-$$
-\begin{cases}
-X = V_T \cos(\theta) \\
-Z = V_T \sin(\theta) \\
-\dot{\theta} = q
-\end{cases}
-$$
-
-with $V_T$ the speed of the missile, assumed constant.
-These equations are implemented in Simulink to reconstruct the missile trajectory (x,y,z) and then converted in geographic coordinates (Latitude, Longitude, Altitude) to generate guidance command. This conversion is applied using the **Aerospace toolbox**.
-
-
-
-## 6. Guidance Law 
-
-### 6.1 Line-of-Sight Geometry
-
-The guidance loop computes the desired flight path angle based on relative geometry:
-
-$\gamma_{cmd} = \arctan\left(\frac{z_{target} - z_{missile}}{R_{horizontal}}\right) $
-
-This really simple atan-based guidance law ensures:
-- Smooth angular commands
-- Robust behavior near terminal phase
-- Compatibility with autopilot inner-loop dynamics
-
-### 6.2 No-Fly Zone (NFZ) Constraint
-
-An obstacle or restricted area is defined by a forbidden region:
-
-$$
-\mathcal{Z}_{NFZ} = \{ (x,y) \mid \| (x,y) - (x_{obs},y_{obs}) \| < R_{\text{NFZ}} \} 
-$$
-
-
-When the predicted missile trajectory intersects the NFZ:
-- The commanded angle becomes $\gamma_{cmd} = 0 $
-
-The physical understanding of this simple command is that it avoids the obstacle by hovering it. The hypothesis behind this choice is that the missile has enough height to hover the obstacle.
-
-
-
-## 7. Outer-Loop Control
-
-### 7.1 Command saturation
-
-In practice, the missile cannot instantaneously change its attitude by a too large value. This dynamic is modelised by using a saturation block. 
-Therefore, the guidance command is constrained by a hard saturation:
-
-$$
-\theta_{cmd} = \text{sat}_{[-0.5,\;0.5]}(\theta_{cmd}) 
-$$
-
-where $\pm 0.5\ \text{rad}$ represents the maximum allowable pitch angle.
-
-### 7.2 PID Controller in the Outer Loop (Guidance Command Conditioning)
-
-Between the raw guidance law and the saturation block, a PID controller is implemented in the outer loop to condition the guidance command before it is applied to the inner-loop autopilot:
-
-$$
-\theta_{cmd}(t) =
-P\ e(t) + I \int e(t)\ dt + D \frac{de(t)}{dt}
-$$
-
-with the tracking error defined as:
-
-$$
-e(t) = \theta_{cmd}(t) - \theta(t)
-$$
-
-Although the inner loop (LQG autopilot) already provides fast and robust stabilization of the missile attitude, the outer-loop PID plays a complementary role. It acts as an interface between guidance and control by smoothing abrupt variations of the raw $\arctan(\cdot) $ -based guidance command before they reach the autopilot. In addition, it enforces a clear separation of time scales, with slow guidance dynamics and fast inner-loop attitude dynamics. The PID also improves robustness with respect to modeling simplifications, kinematic approximations, and coupling effects not captured in the linear autopilot model. Note that it is not really effective in our study since the model of the GNC loop and the simulator are the same.
-
-The gains used in the simulation are:
-
-$$
-P = -1, \quad I = 0, \quad D = 0
-$$
-
-This configuration corresponds to a pure proportional controller with negative feedback. The negative gain ensures the correct feedback direction between the pitch error and the commanded pitch angle. The absence of integral action prevents windup issues induced by the downstream saturation, while the absence of derivative action limits noise amplification and is justified by the already fast dynamics of the inner loop.
-
-In this architecture, the PID does not replace the autopilot. Instead, it scales and regulates the guidance command, ensures compatibility with attitude and actuator limits when combined with saturation, and contributes to an improved overall closed-loop behavior of the integrated guidance and control system.
+L'analyse des zéros de transmission de la fonction de transfert `u → x` révèle un **zéro à phase non minimale** en `s = +4.686 rad/s` (`zero(TF_SEGWAY)`). Cette propriété est **invariante par retour d'état** : aucun réglage de `Q`/`R`, même extrême (`R → 0`), ne permet de dépasser durablement une pulsation propre dominante d'environ **60 % de cette valeur (~2.8 rad/s)** sans dégrader fortement la robustesse. Conséquences pratiques :
+- Le temps de montée ne peut pas descendre significativement en dessous de ~0.84 s avec cette architecture (retour d'état LQI, sortie `x`).
+- Le suivi d'une consigne sinusoïdale à 1 Hz (6.28 rad/s), présente dans le profil de test, est **structurellement hors de portée** de tout retour d'état linéaire sur cette sortie — la fréquence demandée dépasse le zéro instable lui-même.
+- Pistes pour dépasser cette limite : préfiltrage / génération de trajectoire réalisable pour la référence, ou reconsidération de la sortie régulée.
 
 ## 8. Implementation
 
-The project is implemented using:
-- **MATLAB** for analytical design and verification
-- **Simulink** for block-diagram modeling and closed-loop simulation
+- **Simulink** : boucle fermée LQI implémentée et simulée (bloc de gain d'état + intégrateur d'erreur), en parallèle du script d'analyse MATLAB.
+- **Script MATLAB** : construction du modèle d'état, analyse en boucle ouverte, synthèse LQR/LQI, simulation de la réponse temporelle avec le profil de référence `Rcmd`, et outils de réglage (balayage `Q`/`R`, `damp`, `stepinfo`, `bandwidth`, `zero`).
 
-The modular structure enables future extensions such as:
-- Nonlinear aerodynamic modeling
-- Actuator dynamics
-- 3-DOF or 6-DOF missile models
-
-
+*(Détails d'intégration Simulink — schéma-bloc, sous-systèmes, paramétrage des blocs — à compléter.)*
 
 ## 9. Conclusion
 
-This project demonstrates a complete **GNC-oriented control design workflow**, from modeling to LQG synthesis and environmental integration.
+La loi de commande LQI stabilise le système instable en boucle ouverte et assure un suivi de consigne de position avec de bonnes performances pour un profil de type échelon (dépassement ~5 %, temps d'établissement ~2.7 s, couple requis < 1.5 N.m, sous la limite de 3 N.m retenue). L'analyse des zéros de transmission a mis en évidence une limite structurelle à phase non minimale (~4.7 rad/s) bornant la rapidité atteignable, indépendamment du réglage des gains — un résultat important pour cadrer les attentes de performance du système.
 
-Key outcomes include:
-- Successful stabilization of an unstable missile model using LQR
-- Robust state estimation via Kalman filtering
-- Realistic initialization using geodetic navigation principles
-
-The project forms a solid foundation for advanced missile guidance and control developments and is well-suited for inclusion in a professional GitHub portfolio.
-
----
-
-## Keywords
-
-`LQR`, `LQG`, `PID`, `Kalman Filter`, `Missile Autopilot`, `State-Space Control`, `MATLAB`, `Simulink`, `GNC`
+**Travaux futurs** :
+- Extension LQG (observateur + modélisation du bruit) si l'état complet n'est pas directement mesurable
+- Préfiltrage de la consigne pour les profils à haute fréquence (au-delà de la bande passante atteignable)
+- Intégration dans un scénario de visualisation 3D
+- Validation expérimentale sur prototype et confirmation de la limite de couple moteur réelle
