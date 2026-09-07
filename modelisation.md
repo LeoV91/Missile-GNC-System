@@ -4,11 +4,28 @@ Ce document couvre deux volets :
 1. **Dimensionnement physique réel du robot** (mécanique, matériaux, motorisation, électronique, alimentation), avec des choix compatibles MATLAB/Simulink.
 2. **Mise en équation mathématique** : équations de la dynamique non linéaire (Lagrangien) intégrant les inerties réelles (roue, pendule), puis linéarisation pour obtenir un modèle linéaire nécessaire à la synthèse d'une loi de controle.
 
-Notons que la première partie de ce document **§ Dimensionnement physique réel du robot** n'est pour l'instant qu'une prospection des équipements permettant la réalisation d'un modèle référence. 
-Le montage du systeme réel et l'implémentationd des méthodes de controle dévelopées (donc hardware in the loop) fera l'objet d'un document futur.`
+
 
 
 ## Partie 1 — Dimensionnement physique réel
+Notons que cette première partie n'est pour l'instant qu'une prospection des équipements permettant la réalisation d'un modèle référence. 
+Le montage du systeme réel et l'implémentationd des méthodes de controle dévelopées (donc hardware in the loop) fera l'objet d'un document futur.
+
+### Présentation des composants retenus et du systeme
+
+| Composant | Masse estimée | Remarque |
+|---|---|---|
+| Châssis PETG (2 étages) | ~80 g | À affiner selon la CAO finale |
+| 2× moto-réducteur JGA25-370 + roues | ~160 g | 80 g/ensemble |
+| Carte Nucleo | ~25 g | |
+| IMU MPU6050 | ~5 g | |
+| Driver moteur TB6612FNG | ~10 g | |
+| Batterie Li-Po 2S 1200 mAh | ~70 g | |
+| Câblage, visserie ... | ~50 g | |
+| **Total estimé** | **~400-450 g** | Hors marge de conception |
+
+Le systeme total (en considérant une approximation des dimentions et de la disposition des équipements) est représenté schematiquement ci-dessous :
+
 
 ### 1. Cahier des charges
 
@@ -77,26 +94,14 @@ La documentation sur le sujet des cartes permettant de transvaser depuis MATLAB/
 ### 7. Alimentation
 
 - **Batterie Li-Po 2S (7.4 V), 1000-1300 mAh** — bon compromis masse/autonomie pour un robot de cette taille, standard en robotique hobby, alimente directement le driver moteur.
-- **Régulateur buck 5 V** séparé pour l'électronique de commande (carte + IMU), isolé électriquement du bruit de commutation moteur autant que possible (découplage par condensateurs, plan de masse séparé si tu passes en carte dédiée).
 
 ### 8. Driver moteur
 
-**TB6612FNG** (ou DRV8833) plutôt que le classique L298N : meilleur rendement (moins de perte thermique, MOSFET au lieu de transistors bipolaires), format plus compact, adapté à des moteurs de cette puissance modeste.
+**TB6612FNG** (ou DRV8833 ou encore L298N) : bon rendement (peu de perte thermique, MOSFET au lieu de transistors bipolaires), format plus compact, adapté à des moteurs de cette puissance (≈ 0.068 N.m).
 
-### 9. Récapitulatif des composants (estimation de masse)
 
-| Composant | Masse estimée | Remarque |
-|---|---|---|
-| Châssis PETG (2 étages) | ~80 g | À affiner selon la CAO finale |
-| 2× moto-réducteur JGA25-370 + roues | ~160 g | 80 g/ensemble |
-| Carte Nucleo | ~25 g | |
-| IMU MPU6050 | ~5 g | |
-| Driver moteur TB6612FNG | ~10 g | |
-| Batterie Li-Po 2S 1200 mAh | ~70 g | |
-| Câblage, visserie, entretoises | ~50 g | |
-| **Total estimé** | **~400-450 g** | Hors marge de conception |
 
-### 10. Paramètres physiques mis à jour du modèle
+### 9. Paramètres physiques mis à jour du modèle
 
 Ces valeurs remplacent les approximations initiales et alimentent directement la Partie 2 :
 
