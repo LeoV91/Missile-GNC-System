@@ -27,6 +27,8 @@ Le montage du systeme réel et l'implémentationd des méthodes de controle dév
 Le systeme total (en considérant une approximation des dimentions et de la disposition des équipements) est représenté schematiquement ci-dessous :
 
 
+
+La suite de ce document apporte plus de détails concernant le choix de chaque équipement.
 ### 1. Cahier des charges
 
 - Hauteur totale maximale : **30 cm** (roue comprise)
