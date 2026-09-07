@@ -5,7 +5,7 @@
 Ce projet présente la modélisation et la synthèse d'une loi de commande classique pour un système de type **Segway** (pendule inversé sur roue motorisée), implémenté en **MATLAB R2025a** et **Simulink**.
 
 Ce projet combine :
-- La modélisation du Segway (réalisée dans [`Segway-Modeling-1.md`](Segway-Modeling-1.md))
+- La modélisation du Segway (réalisée dans [`modelisation.md`](modelisation1.md))
 - La synthèse d'une loi de commande par retour d'état optimal **LQI** (LQR + action intégrale) assurant le suivi d'une consigne de position
 - L'analyse de stabilité, de performance et des limites physiques du système en boucle fermée
 - *(Piste future)* l'extension vers une architecture **LQG** avec observateur, et l'intégration dans un scénario de visualisation 3D
